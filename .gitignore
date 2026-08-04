@@ -5,3 +5,11 @@ node_modules
 .devcontainer/.git-container
 .devcontainer/.gitdir-container
 .devcontainer/.env
+
+# izayoi runtime artifacts
+.env
+*.db
+
+__pycache__/
+*.tsbuildinfo
+dist
