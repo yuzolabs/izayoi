@@ -1,0 +1,27 @@
+{
+    "conventionalCommits.scopes": [
+        "textlint",
+        "markdownlint",
+        "prek",
+        "copilot",
+        "oh-my-opencode",
+        "devcontainer"
+    ],
+    "chat.tools.terminal.autoApprove": {
+        "bunx textlint": true,
+        "bunx markdownlint-cli2 --fix": true,
+        "fd": true,
+        "rg": true,
+        "ast-grep": true
+    },
+    "github.copilot.chat.commitMessageGeneration.instructions": [
+        {
+            "file": ".github/copilot-commit-message-instructions.md"
+        }
+    ],
+    "github.copilot.chat.pullRequestDescriptionGeneration.instructions": [
+        {
+            "file": ".github/copilot-pull-request-instructions.md"
+        }
+    ]
+}

@@ -1,0 +1,7 @@
+node_modules
+.venv
+
+.sisyphus
+.devcontainer/.git-container
+.devcontainer/.gitdir-container
+.devcontainer/.env

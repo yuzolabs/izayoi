@@ -1,0 +1,8 @@
+node_modules
+.venv
+.git
+coverage
+out
+dist
+*.log
+.sisyphus

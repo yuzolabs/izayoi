@@ -1,0 +1,95 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/debian
+{
+	"name": "my-repository-template",
+	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
+	"dockerComposeFile": ["docker-compose.yml", "docker-compose.override.yml"],
+	"service": "devcontainer",
+	"initializeCommand": "bash \"${localWorkspaceFolder}/.devcontainer/host-initialize.sh\" \"${localWorkspaceFolder}\" \"${localWorkspaceFolderBasename}\" \"/workspaces/my-repository-template\" \"/workspace\"",
+	// Configure tool-specific properties.
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"charliermarsh.ruff",
+				"ms-python.python",
+				"GitHub.copilot-chat",
+				"MS-CEINTL.vscode-language-pack-ja",
+				"GitHub.vscode-pull-request-github",
+				"vivaxy.vscode-conventional-commits",
+				"tamasfe.even-better-toml",
+				"mhutchie.git-graph",
+				"donjayamanne.githistory",
+				"eamodio.gitlens",
+				"yzhang.markdown-all-in-one",
+				"shd101wyy.markdown-preview-enhanced",
+				"DavidAnson.vscode-markdownlint",
+				"mechatroner.rainbow-csv",
+				"mosapride.zenkaku"
+			]
+		}
+	},
+	"remoteEnv": {
+		// ローカルのトークン変数をコンテナ内の環境変数として渡す
+		"GH_TOKEN": "${localEnv:GH_TOKEN}",
+		// uvのハードリンク警告を抑制（Docker環境のファイルシステム差に対応）
+		"UV_LINK_MODE": "copy"
+	},
+	"forwardPorts": [3000, 4173, 5173, 6006, 8000, 8080],
+	"portsAttributes": {
+		"3000": {
+			"label": "App",
+			"requireLocalPort": false,
+			"onAutoForward": "notify"
+		},
+		"4173": {
+			"label": "Preview",
+			"requireLocalPort": false,
+			"onAutoForward": "notify"
+		},
+		"5173": {
+			"label": "Vite",
+			"requireLocalPort": false,
+			"onAutoForward": "notify"
+		},
+		"6006": {
+			"label": "Storybook",
+			"requireLocalPort": false,
+			"onAutoForward": "notify"
+		},
+		"8000": {
+			"label": "API",
+			"requireLocalPort": false,
+			"onAutoForward": "notify"
+		},
+		"8080": {
+			"label": "Web",
+			"requireLocalPort": false,
+			"onAutoForward": "notify"
+		}
+	},
+	"otherPortsAttributes": {
+		"requireLocalPort": false,
+		"onAutoForward": "notify"
+	},
+	"mounts": [
+		// 現在開いているworktreeを /workspace にマウント
+		"source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+		// メインリポジトリを /workspaces/my-repository-template にマウント
+		"source=${localWorkspaceFolder}/../../my-repository-template,target=/workspaces/my-repository-template,type=bind,consistency=cached",
+		// worktrees親ディレクトリを /workspaces/my-repository-template.worktrees にマウント
+		"source=${localWorkspaceFolder}/..,target=/workspaces/my-repository-template.worktrees,type=bind,consistency=cached",
+		"source=${localWorkspaceFolder}/.devcontainer/.git-container,target=/workspace/.git,type=bind,consistency=cached",
+		"source=${localWorkspaceFolder}/.devcontainer/.gitdir-container,target=/workspaces/my-repository-template/.git/worktrees/${localWorkspaceFolderBasename}/gitdir,type=bind,consistency=cached",
+		// opencode設定ファイルのマウント（ホスト設定を読み取り専用でマウント、コンテナ内でコピーして使用）
+		"source=${localEnv:HOME}${localEnv:USERPROFILE}/.local/share/opencode,target=/host-config/opencode/share,type=bind,consistency=cached,readonly",
+		"source=${localEnv:HOME}${localEnv:USERPROFILE}/.config/opencode,target=/host-config/opencode/config,type=bind,consistency=cached,readonly",
+		// git configのマウント（ホスト設定を読み取り専用でマウント、コンテナ内でコピーして使用）
+		"source=${localEnv:HOME}${localEnv:USERPROFILE}/.gitconfig,target=/host-config/.gitconfig,type=bind,consistency=cached,readonly"
+	],
+	// 現在開いているワークスペースを常に /workspace にマウントして利用する
+	"workspaceFolder": "/workspace",
+	"postCreateCommand": "bash /workspace/.devcontainer/check-mounts.sh",
+	"postStartCommand": "bash /workspace/.devcontainer/auto-setup.sh && bash /workspace/.devcontainer/post-start.sh",
+	// Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
+	"remoteUser": "node"
+}

@@ -1,0 +1,41 @@
+services:
+  devcontainer:
+    # To use pre-built image instead of building locally, uncomment 'image' and comment out 'build':
+    # image: ghcr.io/${GITHUB_REPOSITORY}/devcontainer:latest
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      # opencode関連のマウントは devcontainer.json で定義（クロスプラットフォーム対応）
+      - type: volume
+        source: bun-cache
+        target: /home/node/.bun/install/cache
+      - type: volume
+        source: uv-cache
+        target: /home/node/.cache/uv
+      - type: volume
+        source: node-modules-cache
+        target: /workspace/node_modules
+        # node_modules、.venvはホストとコンテナで共有せず、コンテナ内だけで管理するためnocopyオプションを指定
+        volume:
+          nocopy: true
+      - type: volume
+        source: venv-cache
+        target: /workspace/.venv
+        volume:
+          nocopy: true
+    environment:
+      - UV_LINK_MODE=copy
+      # メインリポジトリとworktreesのパスを環境変数として渡す
+      - MAIN_REPO_PATH=${MAIN_REPO_PATH:-/workspaces/my-repository-template}
+      - WORKTREES_PATH=${WORKTREES_PATH:-/workspaces/my-repository-template.worktrees}
+    # ホスト向けの固定ポート公開はテンプレートの既定では行わない。
+    # 通常は devcontainer.json の forwardPorts / 自動ポート転送を使い、
+    # プロダクト固有に必要な場合のみ override ファイルで ports を追加する。
+    command: sleep infinity
+
+volumes:
+  bun-cache:
+  uv-cache:
+  node-modules-cache:
+  venv-cache:

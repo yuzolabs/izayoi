@@ -1,0 +1,14 @@
+{
+  "config": {
+    "line-length": false, // MD013: 1文の最大文字数
+    "no-duplicate-heading": false, // MD024: 見出し文字列の重複を許容
+    "no-trailing-punctuation": false, // MD026: 見出しに.,;:が入ることを許容
+    "no-inline-html": false, // MD033: HTML記述を許容
+    "no-bare-urls": false, // MD034: 裸のURLを許容、Xのポストが埋め込めなくなる
+    "fenced-code-language": false, // MD040: コードブロックの言語指定を許容
+    "first-line-heading": false // MD041: ファイルの最初の行が見出しであることを要求しない
+  },
+  "ignores": [
+    "node_modules"
+  ] // node_modules配下はチェック対象外
+}

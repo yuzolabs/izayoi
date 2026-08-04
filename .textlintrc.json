@@ -1,0 +1,94 @@
+{
+  "rules": {
+    "preset-ja-technical-writing": {
+      "sentence-length": {
+        "max": 200,
+        "skipPatterns": [
+          "/```[\\s\\S]*?```/m",
+          "/\\|[^\\|]*\\|/",
+          "/^>\\s.*$/m",
+          "/^[-\\*\\+]\\s.*$/m",
+          "/^\\d+\\.\\s.*$/m",
+          "/^---+$/m",
+          "/@[a-zA-Z]+/",
+          "/https?:\\/\\/[^\\s]+/"
+        ]
+      },
+      "max-ten": {
+        "max": 5
+      },
+      "max-kanji-continuous-len": false,
+      "no-mix-dearu-desumasu": {
+        "preferInHeader": "",
+        "preferInBody": "ですます",
+        "preferInList": "ですます",
+        "strict": true
+      },
+      "ja-no-mixed-period": {
+        "periodMark": "。",
+        "forceAppendPeriod": true,
+        "allowEmojiPeriod": false,
+        "skipPatterns": [
+          "/^前提条件\\s*[:：]\\s*[^。]*$/m",
+          "/^必要条件\\s*[:：]\\s*[^。]*$/m",
+          "/^注意事項\\s*[:：]\\s*[^。]*$/m",
+          "/^備考\\s*[:：]\\s*[^。]*$/m",
+          "/^参考\\s*[:：]\\s*[^。]*$/m",
+          "/^例\\s*[:：]\\s*[^。]*$/m",
+          "/^※\\s*[^。]*$/m"
+        ],
+        "allowPeriodMarks": [
+          ":::",
+          "、",
+          "：",
+          "…",
+          "...",
+          "→",
+          "⇒",
+          "←",
+          "⇐",
+          "）",
+          ")",
+          "etc.",
+          "e.g.",
+          "i.e.",
+          "cf.",
+          "^^",
+          ":)",
+          ":-)",
+          "・",
+          "/"
+        ]
+      },
+      "ja-no-successive-word": {
+        "allowOnomatopee": false,
+        "allow": []
+      },
+      "ja-no-redundant-expression": {
+        "dictOptions": {
+          "dict5": {
+            "allows": [
+              "/^処理を行う/",
+              "/^実装を行う/",
+              "/^設計を行う/",
+              "/^テストを行う/",
+              "/^デプロイを行う/",
+              "/^リファクタリングを行う/",
+              "/^レビューを行う/",
+              "/^バックアップを行う/"
+            ]
+          }
+        }
+      },
+      "ja-hiragana-keishikimeishi": true,
+      "ja-no-abusage": true,
+      "no-exclamation-question-mark": false
+    },
+    "@textlint-ja/textlint-rule-preset-ai-writing": true,
+    "ja-space-between-half-and-full-width": {
+      "space": [
+        "alphabets"
+      ]
+    }
+  }
+}

@@ -1,0 +1,30 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-json
+        exclude: '^\.devcontainer/.*\.json$'
+      - id: check-toml
+      - id: detect-private-key
+      - id: no-commit-to-branch
+        args: [--branch, main]
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: 83d9cd684c87d95d656c1458ef04895a7f1cbd8e # v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/semgrep/semgrep
+    rev: 4cc850aff696dce0f6beddd4bb72db7f4c9abbc0 # v1.165.0
+    hooks:
+      - id: semgrep
+        args: ['--config', 'auto', '--error']
+
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: 9257c6050c0261b8c57e712f632dc4a8010109a9 # v1.25.2
+    hooks:
+      - id: zizmor
+        args: ['--persona', 'pedantic']

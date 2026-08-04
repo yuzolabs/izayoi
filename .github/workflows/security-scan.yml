@@ -1,0 +1,59 @@
+name: Security Scan
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions: {} # デフォルトの広い権限を使わないよう明示的に空にする
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+      pull-requests: read # PRのコミット一覧取得 (GET /repos/{owner}/{repo}/pulls/{n}/commits) に必要。不足だと gitleaks-action が 403 でクラッシュする
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  semgrep:
+    name: semgrep
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    if: github.actor != 'dependabot[bot]'
+    container:
+      image: semgrep/semgrep:1.165.0@sha256:f4791a54c891eabe1188248135574e6e03dfc31dfd3f3b747c7bec7079bfed1b # v1.165.0
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - run: semgrep scan --config=auto --error
+
+  zizmor:
+    name: zizmor
+    runs-on: ubuntu-latest # zizmor-action が Docker で実行されるため slim 不可
+    permissions:
+      contents: read
+      actions: read # オンライン監査でアクション参照を解決するため
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@5f14fd08f7cf1cb1609c1e344975f152c7ee938d # v0.5.6
+        with:
+          persona: pedantic
+          annotations: true
+          advanced-security: false # findings でジョブを失敗させる（semgrep --error と同挙動）
