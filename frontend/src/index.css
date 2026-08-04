@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * izayoi design tokens.
+ * Warm, low-saturation "paper and brass" neutrals with a lunar motif.
+ * No blue-purple gradients anywhere (product constraint).
+ */
+:root {
+  --background: 36 33% 96.5%; /* warm paper */
+  --foreground: 26 14% 14%; /* warm ink */
+  --card: 0 0% 100%;
+  --card-foreground: 26 14% 14%;
+  --primary: 38 44% 33%; /* muted brass (moonlight on paper) */
+  --primary-foreground: 40 45% 96%;
+  --secondary: 36 20% 91%;
+  --secondary-foreground: 26 14% 18%;
+  --muted: 35 18% 92.5%;
+  --muted-foreground: 28 9% 42%;
+  --accent: 38 30% 90%;
+  --accent-foreground: 26 16% 16%;
+  --destructive: 9 48% 40%;
+  --destructive-foreground: 40 45% 96%;
+  --border: 32 15% 86%;
+  --input: 32 15% 82%;
+  --ring: 38 44% 33%;
+  --success: 152 52% 32%;
+  --caution: 38 78% 38%;
+  --radius: 0.625rem;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  @apply bg-background text-foreground font-sans;
+}
+
+/* Quiet, work-tool scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--input)) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: hsl(var(--input));
+  border-radius: 999px;
+}
+
+/* Streaming text cursor for live LLM output. */
+.stream-caret::after {
+  content: "▍";
+  margin-left: 1px;
+  color: hsl(var(--primary));
+  animation: caret-blink 1s steps(2, start) infinite;
+}
+@keyframes caret-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-moon-glow,
+  .animate-fade-in,
+  .stream-caret::after {
+    animation: none;
+  }
+}

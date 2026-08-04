@@ -70,6 +70,15 @@ def create_app() -> FastAPI:
     async def get_personas() -> dict[str, Any]:
         return {"personas": [p.model_dump() for p in personas.list_persona_summaries()]}
 
+    @app.get("/api/personas/balanced")
+    async def get_balanced(count: int = 4) -> dict[str, Any]:
+        """Balanced-selection helper for the session-creation view (SPEC 3.3)."""
+
+        try:
+            return {"types": personas.balanced_select(count)}
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
     # ------------------------------------------------------------------
     # Sessions
     # ------------------------------------------------------------------
