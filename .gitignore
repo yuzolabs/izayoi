@@ -9,3 +9,5 @@ node_modules
 # izayoi runtime artifacts
 .env
 *.db
+
+__pycache__/
