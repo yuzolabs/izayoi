@@ -27,6 +27,11 @@ COPY backend/ ./backend/
 COPY SPEC.md ./
 COPY --from=frontend /build/dist ./frontend/dist
 
+# Run as non-root. Own /data so the volume mount is writable at runtime.
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin appuser \
+    && mkdir -p /data \
+    && chown -R appuser:appuser /app /data
+
 # The container binds 0.0.0.0 so port publishing works; on a developer machine
 # the default (outside Docker) stays 127.0.0.1. API keys arrive via env only.
 ENV IZAYOI_HOST=0.0.0.0 \
@@ -35,4 +40,5 @@ ENV IZAYOI_HOST=0.0.0.0 \
 VOLUME ["/data"]
 EXPOSE 8787
 
+USER appuser
 CMD ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8787"]
