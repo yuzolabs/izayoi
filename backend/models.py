@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 Decision = Literal["pending", "adopted", "held", "rejected"]
 AgentRole = Literal["participant", "devils_advocate"]
@@ -48,13 +48,32 @@ class FacilitatorConfig(BaseModel):
 
 
 class SessionCreate(BaseModel):
+    """Validated session input shared by the REST API and command line."""
+
     theme: str = Field(min_length=1, max_length=2000)
-    constraints: str = Field(default="", max_length=2000)
+    constraints: str | None = Field(default=None, max_length=2000)
     ideas_per_agent: int = Field(default=3, ge=1, le=10)
     discussion_rounds: int = Field(default=2, ge=0, le=3)
     agents: list[AgentConfig] = Field(min_length=2, max_length=16)
     facilitator: FacilitatorConfig
     enable_judge: bool = True
+
+    @field_validator("theme", mode="before")
+    @classmethod
+    def strip_session_theme_before_validation(cls, value: object) -> object:
+        """Strip Unicode whitespace while leaving non-strings to standard validation."""
+
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("constraints", mode="before")
+    @classmethod
+    def normalize_session_constraints_before_validation(cls, value: object) -> object:
+        """Preserve null and normalize blank strings to null before length validation."""
+
+        if not isinstance(value, str):
+            return value
+        stripped_constraints = value.strip()
+        return stripped_constraints or None
 
 
 class SessionMetrics(BaseModel):
@@ -97,8 +116,17 @@ class Idea(BaseModel):
 
 
 class DecisionUpdate(BaseModel):
+    """Human decision note patch. Null note is not updated; blank is an explicit clear."""
+
     decision: Decision
-    note: Optional[str] = None
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+    @field_validator("note", mode="before")
+    @classmethod
+    def normalize_decision_note_before_validation(cls, value: object) -> object:
+        """Strip Unicode whitespace on the decision note; leave null as not updated."""
+
+        return value.strip() if isinstance(value, str) else value
 
 
 class ChatMessage(BaseModel):

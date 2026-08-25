@@ -25,6 +25,12 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import db, orchestrator, personas, providers
 from .models import DecisionUpdate, SessionCreate
+from .session_export import (
+    build_session_export_payload,
+    render_session_export_markdown,
+    serialize_session_export_json,
+)
+from .session_run_lock import SessionRunLockUnavailable, acquire_session_run_lock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DIST = REPO_ROOT / "frontend" / "dist"
@@ -36,14 +42,29 @@ def _frontend_dist() -> Path:
     return Path(os.environ.get("IZAYOI_FRONTEND_DIST", str(DEFAULT_DIST)))
 
 
+def _recover_orphaned_sessions_after_server_restart() -> None:
+    """Recover stale running rows only while no process owns the run slot."""
+
+    try:
+        restart_recovery_lock = acquire_session_run_lock(db.db_path())
+    except SessionRunLockUnavailable:
+        # Every CLI/Web start recovers older rows while holding this same lock
+        # before live work, so only its protected row can stay non-terminal.
+        return
+
+    try:
+        db.recover_orphaned_session_runs(
+            restart_recovery_lock,
+            recovery_reason="Interrupted by server restart",
+        )
+    finally:
+        restart_recovery_lock.release()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
-    # A previous process may have died mid-run; mark orphaned sessions as
-    # errored so history never shows them as eternally "running".
-    for session in db.list_sessions():
-        if session.status not in _TERMINAL_STATUSES:
-            db.update_session_status(session.id, "error", "Interrupted by server restart")
+    _recover_orphaned_sessions_after_server_restart()
     yield
 
 
@@ -103,8 +124,17 @@ def create_app() -> FastAPI:
             raise HTTPException(409, f"session already {session.status}")
         if orchestrator.is_any_session_running():
             raise HTTPException(409, "another session is already running")
-        config = SessionCreate(**(db.get_session_config(session_id) or {}))
-        await orchestrator.start_session(session_id, config)
+        try:
+            await orchestrator.start_session(session_id)
+        except orchestrator.SessionStartTargetNotFoundError as exc:
+            # The preflight read is only a fast UX path; the atomic claim owns
+            # correctness if the row disappears before lock acquisition.
+            raise HTTPException(404, str(exc)) from exc
+        except (
+            orchestrator.SessionAlreadyRunningError,
+            orchestrator.SessionStartConflictError,
+        ) as exc:
+            raise HTTPException(409, str(exc)) from exc
         return {"status": "started"}
 
     @app.get("/api/sessions")
@@ -146,16 +176,9 @@ def create_app() -> FastAPI:
             raise HTTPException(404, "session not found")
         ideas = db.list_ideas(session_id)
         messages = db.list_messages(session_id)
+        export_payload = build_session_export_payload(session, ideas, messages)
         if format == "json":
-            body = json.dumps(
-                {
-                    "session": session.model_dump(mode="json"),
-                    "ideas": [i.model_dump(mode="json") for i in ideas],
-                    "messages": messages,
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
+            body = serialize_session_export_json(export_payload)
             return Response(
                 content=body,
                 media_type="application/json",
@@ -165,7 +188,7 @@ def create_app() -> FastAPI:
             )
         if format != "md":
             raise HTTPException(422, "format must be 'md' or 'json'")
-        body = _render_markdown(session.model_dump(), [i.model_dump() for i in ideas], messages)
+        body = render_session_export_markdown(export_payload)
         return Response(
             content=body,
             media_type="text/markdown; charset=utf-8",
@@ -292,70 +315,6 @@ def _replay_events(session_id: str) -> list[dict[str, Any]]:
     else:
         events.append({"type": "error", "message": session.phase_progress or "session failed"})
     return events
-
-
-def _render_markdown(
-    session: dict[str, Any], ideas: list[dict[str, Any]], messages: list[dict[str, Any]]
-) -> str:
-    """Markdown export: framing, cluster-grouped ideas, discussion log, metrics."""
-
-    lines: list[str] = [
-        f"# izayoi brainstorming session {session['id']}",
-        "",
-        f"- **Theme:** {session['theme']}",
-        f"- **Constraints:** {session['constraints'] or '(none)'}",
-        f"- **Status:** {session['status']}",
-        f"- **Created:** {session['created_at']}",
-        "",
-    ]
-    metrics = session.get("metrics")
-    if metrics:
-        lines += [
-            "## Metrics",
-            "",
-            f"- Total ideas: {metrics['total_ideas']}",
-            f"- Unique ideas: {metrics['unique_ideas']}",
-            f"- Non-duplicate ratio: {metrics['non_duplicate_ratio']}",
-            f"- Semantic dispersion: {metrics['semantic_dispersion']}",
-            f"- Collapse alert: {metrics['collapse_alert']}",
-            "",
-        ]
-    framing = [m for m in messages if m["round"] == 0]
-    if framing:
-        lines += ["## Framing", "", framing[0]["content"], ""]
-
-    lines += ["## Ideas", ""]
-    clusters: dict[Any, list[dict[str, Any]]] = {}
-    for idea in ideas:
-        clusters.setdefault(idea.get("cluster_id"), []).append(idea)
-    for cid, members in sorted(clusters.items(), key=lambda kv: (kv[0] is None, kv[0])):
-        title = f"Cluster {cid}" if cid is not None else "Unclustered"
-        lines += [f"### {title}", ""]
-        for member in members:
-            if member.get("synthesized"):
-                lines += [f"**Synthesized:** {member['synthesized']}", ""]
-            scores = member.get("scores")
-            score_text = (
-                f"N{scores['novelty']} / F{scores['feasibility']} / C{scores['clarity']}"
-                f" (total {scores['total']})"
-                if scores
-                else "not scored"
-            )
-            lines.append(
-                f"- [{member['decision']}] ({member['persona_type']}, {member['phase']})"
-                f" {member['content']} — *{score_text}*"
-            )
-            if member.get("note"):
-                lines.append(f"  - Note: {member['note']}")
-        lines.append("")
-
-    discussion = [m for m in messages if m["round"] >= 1]
-    if discussion:
-        lines += ["## Discussion log", ""]
-        for m in discussion:
-            lines += [f"- **Round {m['round']} — {m['anon_name']}:** {m['content']}"]
-        lines.append("")
-    return "\n".join(lines)
 
 
 app = create_app()

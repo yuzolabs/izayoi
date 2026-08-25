@@ -1,13 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "my-repository-template"
+name = "izayoi"
 version = "0.1.0"
-description = "Repository template"
+description = "Local MBTI-persona brainstorming workspace"
 requires-python = ">=3.12"
-dependencies = []
+dynamic = ["dependencies"]
+
+[project.scripts]
+izayoi = "backend.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
+exclude = ["backend.tests*"]
+
+[tool.setuptools.package-data]
+backend = ["personas/*.json"]
+
+[tool.setuptools.dynamic]
+# Keep requirements.txt as the runtime dependency source used by packaging and Docker.
+dependencies = { file = ["requirements.txt"] }
 
 [dependency-groups]
+# Single source of truth for development extras (pytest, httpx, markdown-it-py,
+# prek). Install with `uv sync --group dev`. Do not reintroduce
+# requirements-dev.txt; that file is not a second dependency list.
 dev = [
     "prek>=0.3.1",
+    "pytest>=8.0",
+    "httpx>=0.27",
+    "markdown-it-py>=4.0",
 ]
 
 [tool.uv]

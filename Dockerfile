@@ -20,10 +20,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 WORKDIR /app
 
+# Keep third-party dependencies cached until requirements.txt changes.
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Install the project itself so package data and the `izayoi` console script are
+# available to both the default Web server and `--entrypoint izayoi` containers.
+COPY pyproject.toml README.md ./
 COPY backend/ ./backend/
+RUN pip install --no-cache-dir --no-deps .
+
 COPY SPEC.md ./
 COPY --from=frontend /build/dist ./frontend/dist
 

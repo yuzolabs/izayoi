@@ -15,8 +15,13 @@ import re
 from typing import Any, Optional
 
 from . import db, metrics, providers
-from .models import AgentConfig, IdeaScores, SessionCreate
+from .models import AgentConfig, IdeaScores, Session, SessionCreate
 from .personas import persona_system_prompt
+from .session_run_lock import (
+    SessionRunLock,
+    SessionRunLockUnavailable,
+    acquire_session_run_lock,
+)
 
 PHASE_LABELS = {
     "framing": "Framing",
@@ -110,15 +115,39 @@ def _is_agreement(text: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-class SessionRunner:
-    """Owns the event history and subscriber queues for one running session."""
+class SessionAlreadyRunningError(RuntimeError):
+    """Raised when the local or cross-process session run slot is occupied."""
 
-    def __init__(self, session_id: str) -> None:
+
+class SessionStartTargetNotFoundError(RuntimeError):
+    """Raised when an atomic session start cannot find its target row."""
+
+
+class SessionStartConflictError(RuntimeError):
+    """Raised when an atomic session start targets a terminal or claimed row."""
+
+
+class SessionRunner:
+    """Owns one run's task, process lock, event history, and subscriber queues."""
+
+    def __init__(self, session_id: str, run_lock: SessionRunLock) -> None:
         self.session_id = session_id
+        self.run_lock = run_lock
+        self.task: Optional[asyncio.Task[None]] = None
         self.history: list[dict[str, Any]] = []
         self.subscribers: set[asyncio.Queue] = set()
         self.done = False
+        self.cancellation_reason: str | None = None
         self._lock = asyncio.Lock()
+
+    def request_graceful_cancellation(self, reason: str) -> bool:
+        """Record one cancellation reason and cancel this run's task exactly once."""
+
+        if self.cancellation_reason is not None or self.done or self.task is None:
+            return False
+        self.cancellation_reason = reason
+        self.task.cancel()
+        return True
 
     async def publish(self, event: dict[str, Any]) -> None:
         async with self._lock:
@@ -151,13 +180,111 @@ def is_any_session_running() -> bool:
     return any(not r.done for r in _runners.values())
 
 
-async def start_session(session_id: str, config: SessionCreate) -> None:
-    """Entry point invoked by the API; spawns the run as a background task."""
+def _acquire_session_start_lock() -> SessionRunLock:
+    # This in-memory check is an early UX rejection only. The OS lock and the
+    # SQLite claim transaction below are the correctness boundary.
+    if is_any_session_running():
+        raise SessionAlreadyRunningError("another session is already running")
+    try:
+        return acquire_session_run_lock(db.db_path())
+    except SessionRunLockUnavailable as exc:
+        raise SessionAlreadyRunningError("another session is already running") from exc
 
-    runner = SessionRunner(session_id)
-    _runners[session_id] = runner
-    task = asyncio.create_task(_execute(runner, config))
-    runner.task = task  # type: ignore[attr-defined]
+
+def _launch_claimed_session_run(
+    claimed_session_run: db.ClaimedSessionRun,
+    run_lock: SessionRunLock,
+) -> None:
+    """Transfer a committed session run claim and its lock to a background runner."""
+
+    session_id = claimed_session_run.session.id
+    runner = SessionRunner(session_id, run_lock)
+    task: asyncio.Task[None] | None = None
+    try:
+        _runners[session_id] = runner
+        task = asyncio.create_task(_execute(runner, claimed_session_run.config))
+        runner.task = task
+    except BaseException as exc:
+        if task is not None:
+            task.cancel()
+        if _runners.get(session_id) is runner:
+            _runners.pop(session_id, None)
+        try:
+            message = str(exc).replace("\n", " ").strip() or type(exc).__name__
+            db.update_session_status(
+                session_id,
+                "error",
+                f"Session runner launch failed: {message}"[:500],
+            )
+        finally:
+            run_lock.release()
+        raise
+
+
+async def start_session(session_id: str) -> None:
+    """Atomically claim an existing Web session, then launch its background runner."""
+
+    run_lock = _acquire_session_start_lock()
+    try:
+        claimed_session_run = db.claim_session_run(run_lock, session_id)
+    except db.SessionRunClaimMissingError as exc:
+        run_lock.release()
+        raise SessionStartTargetNotFoundError(str(exc)) from exc
+    except (
+        db.SessionRunClaimAlreadyStartedError,
+        db.SessionRunClaimTerminalError,
+    ) as exc:
+        run_lock.release()
+        raise SessionStartConflictError(str(exc)) from exc
+    except BaseException:
+        run_lock.release()
+        raise
+
+    # claim_session_run has committed and closed its transaction before the
+    # lock capability can reach SessionRunner or asyncio.create_task.
+    _launch_claimed_session_run(claimed_session_run, run_lock)
+
+
+async def create_and_start_session(config: SessionCreate) -> Session:
+    """Atomically create and claim a CLI session, then launch its background runner."""
+
+    run_lock = _acquire_session_start_lock()
+    try:
+        claimed_session_run = db.create_and_claim_session_run(run_lock, config)
+    except BaseException:
+        run_lock.release()
+        raise
+
+    _launch_claimed_session_run(claimed_session_run, run_lock)
+    return claimed_session_run.session
+
+
+async def wait_for_session_completion(session_id: str) -> None:
+    """Wait for a run without letting caller cancellation bypass runner cleanup."""
+
+    runner = get_runner(session_id)
+    if runner is None or runner.task is None:
+        raise RuntimeError(f"Session wait failed for '{session_id}': no running task")
+    await asyncio.shield(runner.task)
+
+
+async def cancel_and_wait_for_session_completion(
+    session_id: str,
+    reason: str,
+) -> None:
+    """Cancel one runner and wait for its provider, DB, registry, and lock cleanup."""
+
+    runner = get_runner(session_id)
+    if runner is None or runner.task is None:
+        return
+
+    runner.request_graceful_cancellation(reason)
+    task = runner.task
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        if not task.cancelled():
+            raise
 
 
 # ---------------------------------------------------------------------------
@@ -535,11 +662,21 @@ async def _execute(runner: SessionRunner, config: SessionCreate) -> None:
         await _phase_convergence(runner, config, framing)
         db.update_session_status(session_id, "done", "Session completed")
         await runner.publish({"type": "phase", "phase": "done", "label": PHASE_LABELS["done"]})
+    except asyncio.CancelledError:
+        if runner.cancellation_reason is not None:
+            db.terminate_claimed_session_run(
+                runner.run_lock,
+                session_id,
+                runner.cancellation_reason,
+            )
+        raise
     except Exception as exc:
         db.update_session_status(session_id, "error", str(exc)[:500])
         await runner.publish({"type": "error", "message": str(exc)[:500]})
     finally:
         runner.done = True
-        # Live subscribers already hold every event in their queues; new
-        # connections from here on replay from the DB (P1).
-        _runners.pop(session_id, None)
+        # Remove this exact runner before releasing the process-wide run slot,
+        # so a newly acquired slot never races a stale in-memory registry entry.
+        if _runners.get(session_id) is runner:
+            _runners.pop(session_id, None)
+        runner.run_lock.release()
