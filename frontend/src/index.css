@@ -3,8 +3,10 @@
 @tailwind utilities;
 
 /*
- * izayoi design tokens.
- * Warm, low-saturation "paper and brass" neutrals with a lunar motif.
+ * izayoi design tokens — "a quiet moonlit editing room".
+ * Warm paper desk + warm ink + muted brass, with ONE flat night color
+ * reserved for the lunar chrome (spine, strips, bars). See
+ * docs/design-foundation.md before adding tokens.
  * No blue-purple gradients anywhere (product constraint).
  */
 :root {
@@ -25,8 +27,17 @@
   --border: 32 15% 86%;
   --input: 32 15% 82%;
   --ring: 38 44% 33%;
-  --success: 152 52% 32%;
+  --success: 152 52% 31%;
   --caution: 38 78% 38%;
+  /* Night chrome — the only dark surface in the app (lunar spine/bars). */
+  --night: 240 18% 15%;
+  --moonlight: 46 35% 88%; /* text + lit moons on night */
+  --night-muted: 240 12% 64%; /* secondary text on night */
+  --caution-night: 43 92% 67%; /* cost warning readable on night */
+  /* Light tint of the destructive hue (9) for errors on night chrome. */
+  --destructive-night: 9 84% 77%;
+  /* Light tint of the success hue (152) for adopted counts on night chrome. */
+  --success-night: 152 45% 70%;
   --radius: 0.625rem;
 }
 
@@ -41,6 +52,357 @@ html {
 
 body {
   @apply bg-background text-foreground font-sans;
+}
+
+@layer components {
+  /* --- Night chrome (lunar spine, mobile strips/bars) ------------------ */
+
+  /* Panel of the night sky: flat deep indigo, never a gradient. */
+  .lunar-spine {
+    @apply rounded-xl bg-night text-night-foreground;
+  }
+
+  /* One setup phase as a waxing moon + label. Current step stays lit. */
+  .lunar-spine__step {
+    @apply flex items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm
+      font-medium text-night-muted transition-colors
+      hover:bg-white/5 hover:text-night-foreground
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80;
+  }
+  .lunar-spine__step[aria-current="step"] {
+    @apply bg-white/10 text-night-foreground;
+  }
+
+  /* Mono instrument readout (session plan summary) on night. */
+  .council-readout {
+    @apply font-mono text-xs leading-relaxed text-night-muted;
+  }
+  .council-readout__title {
+    @apply text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-night-muted/80;
+  }
+  .council-readout__value {
+    @apply text-night-foreground;
+  }
+
+  /* --- Live observatory (night masthead on the session screen) --------- */
+
+  /* The observatory desk's single night band: status, lunar phase rail,
+     and the compressed metrics instrument all live here. */
+  .live-masthead {
+    @apply rounded-xl bg-night text-night-foreground;
+  }
+
+  /* Status chip + quiet CTA readable on night; brass ring would vanish. */
+  .live-masthead__chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-white/15
+      bg-white/5 px-2.5 py-1 text-xs font-medium;
+  }
+  .live-masthead__cta {
+    @apply h-9 border border-white/25 bg-white/10 px-4 font-medium
+      text-night-foreground hover:bg-white/20 hover:text-night-foreground
+      focus-visible:ring-white/80 focus-visible:ring-offset-night;
+  }
+
+  /* Compressed diversity metrics as a mono instrument line on night. */
+  .live-metrics-readout {
+    @apply flex flex-wrap items-baseline gap-x-1.5 gap-y-1 font-mono
+      text-[11px] leading-relaxed text-night-muted;
+  }
+  .live-metrics-readout__value {
+    @apply text-night-foreground;
+  }
+
+  /* Jump-to-latest bar attached under a live scroll region — full width
+     so a paused follow state cannot be missed, below the text it skips. */
+  .follow-jump {
+    @apply mt-2 w-full justify-center gap-1.5 border-primary/40 bg-primary/5
+      font-medium hover:bg-primary/10 hover:text-foreground;
+  }
+  .follow-jump--new {
+    @apply border-primary/60 bg-primary/10;
+  }
+
+  /* --- Results decision desk -------------------------------------------- */
+
+  /* The Results screen's single night element: a decision index that is a
+     sticky rail beside the paper workspace on desktop and a compact,
+     non-sticky masthead on mobile. Shares the night-chrome chip/CTA
+     primitives (.live-masthead__chip / __cta) defined above. */
+  .results-index {
+    @apply rounded-xl bg-night text-night-foreground;
+  }
+
+  /* Ghost night link back to the Live view. */
+  .results-index__back {
+    @apply -ml-1.5 inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm
+      text-night-muted transition-colors hover:bg-white/5 hover:text-night-foreground
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80;
+  }
+
+  /* One decision count acting as its own filter control: label left,
+     mono count right; full-width rows in the desktop rail, wrapping chips
+     in the mobile masthead (the same node, laid out by flex-wrap). */
+  .results-index__filter {
+    @apply inline-flex min-w-0 items-center justify-between gap-2 rounded-md
+      border border-transparent px-2.5 py-1.5 text-sm text-night-muted
+      transition-colors hover:bg-white/5 hover:text-night-foreground
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80;
+  }
+  .results-index__filter[aria-pressed="true"] {
+    @apply border-white/25 bg-white/10 font-medium text-night-foreground;
+  }
+
+  /* One-line mono note directly under the filters: the aria-describedby
+     target every LLM score badge points at. Kept outside the review details
+     fold (so it renders while the disclosure is closed) and sized to fit
+     one line at 390px / two at 320px without growing the masthead. */
+  .results-index__score-advisory {
+    @apply mt-2.5 font-mono text-[0.6875rem] leading-snug text-night-muted
+      lg:mt-3 lg:text-xs;
+  }
+
+  /* Mobile-only disclosure that folds the review details (constraints, LLM
+     advisory, exports) behind one keyboard-native toggle; removed at lg,
+     where the rail keeps the same content permanently expanded. */
+  .results-index__review-summary {
+    @apply flex min-h-9 w-full cursor-pointer list-none items-center gap-2
+      rounded-md px-2.5 py-1.5 text-xs font-medium text-night-muted
+      transition-colors hover:bg-white/5 hover:text-night-foreground
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80
+      [&::-webkit-details-marker]:hidden;
+  }
+
+  /* Results export failure on the paper column: wrap long HTTP lines at
+     320px so the destructive alert never stretches the desk sideways. */
+  .session-results-export-alert {
+    @apply min-w-0 max-w-full overflow-x-hidden;
+  }
+  .session-results-export-alert p {
+    overflow-wrap: anywhere;
+  }
+
+  /* Missing-session terminal alert: wrap recovery copy at 320px so the
+     destructive card never stretches Live or Results sideways. */
+  .session-not-found-alert {
+    @apply min-w-0 max-w-full overflow-x-hidden;
+  }
+  .session-not-found-alert p {
+    overflow-wrap: anywhere;
+  }
+
+  /* Cluster dossier strip on the paper side: a brass-tinted disclosure
+     header (the wayfinding layer) sitting above the white idea cards. */
+  .results-dossier__header {
+    @apply flex w-full items-center gap-2.5 rounded-lg border border-primary/25
+      bg-accent/60 p-3 text-left transition-colors hover:bg-accent
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring
+      focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+  }
+  .results-dossier__header[aria-expanded="true"] {
+    @apply border-primary/40 bg-accent;
+  }
+
+  /* Results idea memo: cap height so 100k+ programmatic text cannot
+     stretch the card at 390px / 320px. Wrap anywhere; scroll inside. */
+  .results-idea-memo-field {
+    max-width: 100%;
+    max-height: 9rem;
+    min-width: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+  }
+
+  /* --- Paper side (setup sections) ------------------------------------- */
+
+  /* Section header row: moon glyph + mono number + Fraunces title. */
+  .create-section__header {
+    @apply flex items-baseline gap-2.5 border-b border-border pb-3;
+  }
+
+  /* --- History archive masthead (the screen's one night element) ------ */
+
+  /* Index card of the night archive: title, on-record count + triage
+     index, UTC note, and the brass New session CTA all live here. */
+  .archive-masthead {
+    @apply rounded-xl bg-night text-night-foreground;
+  }
+  .archive-masthead__eyebrow {
+    @apply flex items-center gap-2 font-mono text-[0.65rem] font-semibold
+      uppercase tracking-[0.18em] text-night-muted;
+  }
+  /* Mono instrument line: how many councils are on record and how they
+     split into running / decided / failed for one-glance triage. */
+  .archive-masthead__index {
+    @apply flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs
+      leading-relaxed text-night-muted;
+  }
+  .archive-masthead__index-value {
+    @apply text-night-foreground;
+  }
+  /* Brass primary CTA on night (matches the Live masthead's emphasized CTA). */
+  .archive-masthead__cta {
+    @apply inline-flex h-9 shrink-0 items-center justify-center gap-2
+      whitespace-nowrap rounded-md bg-primary px-4 text-sm font-medium
+      text-primary-foreground shadow-sm transition-colors hover:bg-primary/90
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80
+      focus-visible:ring-offset-2 focus-visible:ring-offset-night;
+  }
+
+  /* --- History archive ledger (quiet paper side) ------------------------ */
+
+  /* The ledger itself: one shared card surface whose rows are hairline
+     scan lines, not a stack of equal cards. */
+  .history-ledger {
+    @apply overflow-hidden rounded-xl border bg-card;
+  }
+
+  /* Mono column labels; hidden below lg where rows stack. Shares the row
+     grid so labels and cells always align. */
+  .history-ledger__columns {
+    @apply hidden border-b border-border bg-secondary/40 px-4 text-[0.65rem]
+      font-semibold uppercase tracking-[0.14em] text-muted-foreground
+      sm:px-5 lg:grid lg:grid-cols-[minmax(0,1fr)_8.75rem_10.75rem_13rem_auto]
+      lg:gap-x-5 lg:py-2;
+  }
+
+  /* One council per scan line. Mobile: two columns (theme/metrics/action
+     span both; status pairs with the date). Desktop: five columns. */
+  .history-ledger__row {
+    @apply grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-1.5
+      px-4 py-4 transition-colors hover:bg-accent/50 focus-within:bg-accent/50
+      sm:px-5 lg:grid-cols-[minmax(0,1fr)_8.75rem_10.75rem_13rem_auto]
+      lg:items-center lg:gap-x-5 lg:gap-y-0 lg:py-3.5;
+  }
+  .history-ledger__cell--theme {
+    @apply col-span-2 min-w-0 lg:col-span-1;
+  }
+  .history-ledger__cell--metrics {
+    @apply col-span-2 min-w-0 lg:col-span-1;
+  }
+  /* Below xs (<375px) the phone is too narrow for the status tile + label
+     to share a line with the UTC stamp, so each takes its own full-width
+     line (long labels and invalid dates wrap instead of colliding). */
+  .history-ledger__cell--status {
+    @apply col-span-2 min-w-0 xs:col-span-1;
+  }
+  .history-ledger__cell--date {
+    @apply col-span-2 min-w-0 justify-self-start text-left font-mono text-xs
+      leading-relaxed text-muted-foreground [overflow-wrap:anywhere]
+      xs:col-span-1 xs:justify-self-end xs:text-right
+      lg:justify-self-start lg:text-left;
+  }
+  .history-ledger__cell--action {
+    @apply col-span-2 mt-1 lg:col-span-1 lg:mt-0;
+  }
+
+  /* Theme is the primary text of the row: quiet until hovered/focused. */
+  .history-ledger__theme {
+    @apply block break-words font-medium leading-snug text-foreground
+      underline-offset-4 transition-colors hover:text-primary hover:underline
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring
+      focus-visible:ring-offset-2 focus-visible:ring-offset-card
+      [overflow-wrap:anywhere];
+  }
+
+  /* Next-step link: full-width tap target below lg, compact outline
+     button flush right on the desktop scan line. */
+  .history-ledger__action {
+    @apply flex h-10 w-full items-center justify-center gap-2 rounded-md
+      border border-input bg-card text-sm font-medium shadow-sm
+      transition-colors hover:bg-accent hover:text-accent-foreground
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring
+      focus-visible:ring-offset-2 focus-visible:ring-offset-card
+      lg:h-9 lg:w-auto lg:justify-self-end lg:px-4;
+  }
+
+  /* Fixed bottom action bar with iOS safe-area inset (mobile Create). */
+  .create-actionbar {
+    @apply fixed inset-x-0 bottom-0 z-30 border-t border-white/10 bg-night
+      text-night-foreground;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
+/* --- Document-scroller keyboard focus insets (mobile keyboard safe area) -- */
+
+/* The document is the app's only scroll container, so these insets steer
+   EVERY keyboard-focus scroll: Tab/Shift+Tab, native focus(), anchor jumps
+   like the skip link, and useSessionResultsFocusRecovery's focus() all use
+   the browser's implicit scrollIntoView, which honors scroll-padding.
+   Top inset keeps the focused control clear of the 3.5rem sticky app header
+   plus its focus ring. Bottom stays 0 by default: only the mobile Create
+   route floats chrome above content (rule below), so Results, Live, and
+   History never reserve a bottom gap. */
+html {
+  scroll-padding-top: 4.5rem;
+  scroll-padding-bottom: 0px;
+}
+
+/* .create-actionbar is fixed above the safe area only while the viewport is
+   narrower than the lg (1024px) two-column layout AND taller than the
+   max-height 480px flow guard (see the zoom guards below). Legacy min/max
+   syntax with fractional complements (1023.98px / 480.02px) — NOT range
+   syntax — so every evergreen engine parses the rule: a 1023.5px or 480.5px
+   viewport is still mobile-zoom territory that integer `max-width: 1023px /
+   min-height: 481px` queries would miss. The html lifecycle class scopes the
+   inset to routes that actually render the bar (Create only): the
+   CreateActionbar component adds izayoi-create-actionbar-visible on mount
+   and its effect cleanup removes it on unmount/route-away. No :has() here
+   on purpose — :has() plus range syntax is Safari 16.4+/Firefox 121+ only,
+   and older engines dropped the whole rule, reverting 390px Create to
+   bottom inset 0 with the fixed CTA covering the focused field. */
+@media (max-width: 1023.98px) and (min-height: 480.02px) {
+  html.izayoi-create-actionbar-visible {
+    scroll-padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* Keyboard focus inside the Create form must clear TWO stacked sticky bands
+   on mobile (3.5rem app header + the step strip at top-14 below it), not just
+   the header. 2rem element margin + the 4.5rem document inset lands focused
+   controls on the same 6.5rem line the step sections jump to. Scoped below lg
+   with the same fractional complement (legacy syntax; see the inset rule
+   above) because the sticky strip itself is lg:hidden and the desktop rail
+   sits beside the content, never over it. */
+@media (max-width: 1023.98px) {
+  .create-content :is(a[href], button, input, select, textarea, [tabindex]) {
+    scroll-margin-top: 2rem;
+  }
+}
+
+/* Keep sticky header/strip from covering section tops after rail jumps.
+   Was 6.5rem before the document scroller grew a 4.5rem top inset; the two
+   ADD UP in the scroll-into-view algorithm, so the margin drops to 2rem to
+   preserve the exact same 6.5rem jump landing. */
+section[id^="step-"] {
+  scroll-margin-top: 2rem;
+}
+
+/* --- Short-height desktop guard ----------------------------------------- */
+
+/* Width alone is not permission to pin chrome. On short desktop viewports
+   (1366×600, 1024×600) the old width-only lg:sticky masthead buried Live
+   focus targets under night chrome and the Results rail fought the page
+   scroll with a cramped inner scrollbar. The responsive-sticky pair applies
+   position/top (and the rail's max-height/overflow-y) ONLY when the viewport
+   is desktop-wide AND tall (min-width 1024px + min-height 900px); anywhere
+   else both bands ride the natural page scroll. Do not reintroduce
+   width-only lg:sticky on .live-masthead or .results-index. */
+@media (min-width: 1024px) and (min-height: 900px) {
+  .responsive-sticky--masthead {
+    position: sticky;
+    /* Clears the 3.5rem sticky app header above it. */
+    top: 3.5rem;
+    z-index: 30;
+  }
+  .responsive-sticky--rail {
+    position: sticky;
+    top: 4.5rem;
+    /* Leaves breathing room under the header + a gutter at the bottom. */
+    max-height: calc(100vh - 6.5rem);
+    overflow-y: auto;
+  }
 }
 
 /* Quiet, work-tool scrollbars. */
@@ -70,10 +432,141 @@ body {
   }
 }
 
+/* --- Create 200% zoom reflow guard -------------------------------------- */
+
+/* Browser zoom at 200% halves CSS pixels: a 1440×900 desktop becomes
+   720×450, where the fixed bottom bar eats a third of the screen and the
+   pb-24 fixed-bar reservation trails the short content as a dead gap. On
+   viewports 480px tall or less the mobile Create bar leaves the fixed
+   layer and joins the normal flow — it already sits last in DOM order, so
+   the CTA reads as the natural end of the form. The safe-area inset is
+   kept on the bar itself; the content's fixed-bar reservation drops to
+   zero because nothing floats above it anymore. Normal phones (390×844,
+   320×844) are taller than this breakpoint and keep the classic fixed
+   one-row bar; the desktop rail never renders the bar at all (lg:hidden). */
+@media (max-height: 480px) {
+  .create-actionbar {
+    position: static;
+  }
+  .create-content {
+    padding-bottom: 0;
+  }
+}
+
+/* At 240px wide or less (a 320px phone at 200% zoom) the one-row CTA
+   cannot keep its nowrap shape — "Start brainstorming" would overflow the
+   viewport. The inner bar and the button go full-width with min-width:0,
+   drop nowrap for a safe two-line wrap (icon keeps its size, text keeps
+   its size — only the line box is allowed to break), and the button grows
+   height to hold two lines at the same type size. */
+@media (max-width: 240px) {
+  .create-actionbar__inner {
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+  }
+  .create-actionbar__inner > button {
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+    height: auto;
+    min-height: 2.5rem;
+    white-space: normal;
+  }
+  /* Models step persona label: w-40 (160px) cannot share a 139px card
+     interior at this zoom; let the label fill the (stacked) row instead. */
+  .create-agent-row__persona {
+    width: 100%;
+    max-width: 100%;
+  }
+  /* Same zoom band, app header: "New session" + "History" cannot share a
+     163px row with the wordmark. The bar and nav wrap instead of forcing a
+     293px line — link padding tightens (text size does not change) so most
+     rows stay single-line. */
+  .app-header__bar {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 3.5rem;
+    padding-top: 0.375rem;
+    padding-bottom: 0.375rem;
+  }
+  .app-header__bar nav {
+    flex-wrap: wrap;
+  }
+  .app-header__bar nav a {
+    padding: 0.25rem 0.5rem;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  /* Non-essential motion only: Tailwind spin/pulse loading indicators and
+     the custom moon/caret tokens stop animating but STAY VISIBLE — loading
+     meaning is carried by the adjacent text, role="status", and aria-busy
+     on the same controls. Essential transitions are untouched. */
+  .animate-spin,
+  .animate-pulse,
   .animate-moon-glow,
   .animate-fade-in,
+  .live-pulse-dot,
   .stream-caret::after {
     animation: none;
+  }
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* ── Forced colors (Windows High Contrast mode) ──────────────────────
+   When the OS forces its color palette, the engine flattens author
+   colors to system colors and drops box-shadows. Three of izayoi's
+   affordances vanish with it:
+
+   1. Filled actions. A selected decision key is variant="default"
+      plus bg-success/… — the default variant carries NO border-width
+      utility, so the key's edge computes to 0px while its unselected
+      outline-variant neighbours keep a 1px system edge. The selected
+      state must be the MOST bounded control on the card, not the least.
+   2. Ring focus. Every control draws focus as a box-shadow ring, and
+      forced colors erases box-shadows — keyboard focus goes invisible.
+   3. Ghost/link-style buttons and text links lose their hover-tint
+      backgrounds and end up as bare text.
+
+   So every interactive control gets an explicit system-color edge:
+   1px ButtonText in general, 2px for solid-fill actions (bg-primary /
+   bg-secondary / bg-success / bg-caution / bg-destructive as exact
+   tokens — opacity variants like bg-success/90 never match and stay
+   1px), and a Highlight outline restores keyboard focus to the
+   surface. forced-color-adjust is deliberately left unset — the system
+   palette wins; we only draw edges on top of it.
+
+   Cascade: this block sits after @tailwind utilities on purpose.
+   :is() lifts each rule's specificity to (0,2,1) so it beats Tailwind's
+   .focus-visible\:outline-none:focus-visible (0,2,0) without
+   !important, and the media query keeps all of it inert during normal
+   rendering. */
+@media (forced-colors: active) {
+  button,
+  a[href],
+  [role="button"] {
+    border: 1px solid ButtonText;
+  }
+
+  /* Solid-fill actions read as the heavyweight controls they are. */
+  :is(button, a[href], [role="button"]):is(
+      .bg-primary,
+      .bg-secondary,
+      .bg-success,
+      .bg-caution,
+      .bg-destructive
+    ) {
+    border: 2px solid ButtonText;
+  }
+
+  /* Ring focus dies with box-shadow; restore a system outline on every
+     focusable control (field focus is ring-based too). */
+  :is(button, a[href], [role="button"], input, select, textarea):focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
   }
 }

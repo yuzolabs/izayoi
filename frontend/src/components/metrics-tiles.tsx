@@ -2,8 +2,10 @@ import { AlertTriangle, Gauge, Layers, PieChart, Waves } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
 import type { SessionMetrics } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
-export function MetricsTiles({ metrics }: { metrics: SessionMetrics }) {
+/** Live session diversity metrics with an announced collapse warning. */
+export function MetricsTiles({ metrics, className }: { metrics: SessionMetrics; className?: string }) {
   const tiles = [
     { icon: Layers, label: "Ideas", value: String(metrics.total_ideas) },
     { icon: PieChart, label: "Unique", value: String(metrics.unique_ideas) },
@@ -19,11 +21,11 @@ export function MetricsTiles({ metrics }: { metrics: SessionMetrics }) {
     },
   ];
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div className={cn("grid grid-cols-2 gap-3 sm:grid-cols-4", className)}>
       {tiles.map((tile) => (
         <Card key={tile.label}>
           <CardContent className="flex items-center gap-3 p-4">
-            <tile.icon className="h-5 w-5 shrink-0 text-primary" />
+            <tile.icon aria-hidden="true" className="h-5 w-5 shrink-0 text-primary" />
             <div className="min-w-0">
               <div className="font-mono text-xl font-semibold leading-none">{tile.value}</div>
               <div className="mt-1 truncate text-xs text-muted-foreground">{tile.label}</div>
@@ -32,9 +34,13 @@ export function MetricsTiles({ metrics }: { metrics: SessionMetrics }) {
         </Card>
       ))}
       {metrics.collapse_alert && (
-        <Card className="col-span-2 border-caution/50 bg-caution/10 sm:col-span-4">
+        <Card
+          role="alert"
+          aria-label="Diversity collapse warning"
+          className="col-span-2 border-caution/50 bg-caution/10 sm:col-span-4"
+        >
           <CardContent className="flex items-center gap-2 p-3 text-sm">
-            <AlertTriangle className="h-4 w-4 text-caution" />
+            <AlertTriangle aria-hidden="true" className="h-4 w-4 text-caution" />
             <span>
               <strong>Diversity collapse warning:</strong> the idea pool shows low diversity
               (NDR below 0.5 or minimal semantic dispersion). Consider rerunning with more

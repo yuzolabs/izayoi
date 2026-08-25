@@ -11,19 +11,22 @@ export function ProviderModelSelect({
   model,
   onChange,
   compact = false,
+  labelPrefix,
 }: {
   providers: ProviderInfo[];
   provider: string;
   model: string;
   onChange: (provider: string, model: string) => void;
   compact?: boolean;
+  /** Prefixes the aria-labels (e.g. "INTJ") so repeated pairs stay distinguishable. */
+  labelPrefix?: string;
 }) {
   const current = providers.find((p) => p.id === provider);
   const models = current?.models ?? [];
   return (
     <div className={compact ? "grid grid-cols-2 gap-1.5" : "grid grid-cols-2 gap-2"}>
       <Select
-        aria-label="Provider"
+        aria-label={labelPrefix ? `${labelPrefix} provider` : "Provider"}
         value={provider}
         onChange={(e) => {
           const next = providers.find((p) => p.id === e.target.value);
@@ -38,7 +41,11 @@ export function ProviderModelSelect({
           </option>
         ))}
       </Select>
-      <Select aria-label="Model" value={model} onChange={(e) => onChange(provider, e.target.value)}>
+      <Select
+        aria-label={labelPrefix ? `${labelPrefix} model` : "Model"}
+        value={model}
+        onChange={(e) => onChange(provider, e.target.value)}
+      >
         {models.map((m) => (
           <option key={m} value={m}>
             {m}

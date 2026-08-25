@@ -106,23 +106,116 @@ export type StreamEvent =
   | { type: "metrics"; metrics: SessionMetrics }
   | { type: "error"; message: string };
 
+/** One safely parsed Pydantic validation issue returned by the API. */
+export interface ApiValidationIssue {
+  readonly location: readonly (string | number)[];
+  readonly message: string;
+  readonly type: string | null;
+}
+
+/** Structured HTTP failure with status and safely parsed validation issues. */
+export class ApiRequestError extends Error {
+  readonly status: number;
+  readonly validationIssues: readonly ApiValidationIssue[];
+
+  constructor(
+    status: number,
+    message: string,
+    validationIssues: readonly ApiValidationIssue[] = []
+  ) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.validationIssues = validationIssues;
+  }
+}
+
+function isApiErrorRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isApiValidationLocationPart(value: unknown): value is string | number {
+  return typeof value === "string" || (typeof value === "number" && Number.isFinite(value));
+}
+
+/** Safely parses FastAPI/Pydantic `detail[]` validation issues. */
+export function parsePydanticValidationIssues(detail: unknown): ApiValidationIssue[] {
+  if (!Array.isArray(detail)) return [];
+
+  const issues: ApiValidationIssue[] = [];
+  for (const value of detail) {
+    if (!isApiErrorRecord(value) || typeof value.msg !== "string") continue;
+    const message = value.msg.trim();
+    if (message === "") continue;
+
+    issues.push({
+      location: Array.isArray(value.loc)
+        ? value.loc.filter(isApiValidationLocationPart)
+        : [],
+      message,
+      type: typeof value.type === "string" ? value.type : null,
+    });
+  }
+  return issues;
+}
+
+/** Formats one API validation issue without coercing unknown objects to strings. */
+export function formatApiValidationIssue(issue: ApiValidationIssue): string {
+  const location =
+    issue.location[0] === "body" ? issue.location.slice(1) : issue.location;
+  const fieldPath = location.map(String).join(".");
+  return fieldPath === "" ? issue.message : `${fieldPath}: ${issue.message}`;
+}
+
 const BASE = "/api";
+
+function apiStatusLine(response: Response): string {
+  const statusText = response.statusText.trim();
+  return statusText === "" ? `HTTP ${response.status}` : `${response.status} ${statusText}`;
+}
+
+async function buildApiRequestError(response: Response): Promise<ApiRequestError> {
+  const statusLine = apiStatusLine(response);
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return new ApiRequestError(response.status, statusLine);
+  }
+
+  if (!isApiErrorRecord(body)) {
+    return new ApiRequestError(response.status, statusLine);
+  }
+
+  const validationIssues = parsePydanticValidationIssues(body.detail);
+  if (validationIssues.length > 0) {
+    return new ApiRequestError(
+      response.status,
+      validationIssues.map(formatApiValidationIssue).join("; "),
+      validationIssues
+    );
+  }
+
+  const detailMessage =
+    typeof body.detail === "string" && body.detail.trim() !== ""
+      ? body.detail.trim()
+      : null;
+  const bodyMessage =
+    typeof body.message === "string" && body.message.trim() !== ""
+      ? body.message.trim()
+      : null;
+  return new ApiRequestError(
+    response.status,
+    detailMessage ?? bodyMessage ?? statusLine
+  );
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
     ...init,
   });
-  if (!response.ok) {
-    let detail = `${response.status} ${response.statusText}`;
-    try {
-      const body = await response.json();
-      if (body?.detail) detail = String(body.detail);
-    } catch {
-      // keep the status-line fallback
-    }
-    throw new Error(detail);
-  }
+  if (!response.ok) throw await buildApiRequestError(response);
   return (await response.json()) as T;
 }
 
@@ -149,11 +242,118 @@ export const api = {
     `${BASE}/sessions/${id}/export?format=${format}`,
 };
 
+/** Observable connection state for the Live session SSE subscription. */
+export type SessionStreamConnectionState =
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "disconnected"
+  | "complete";
+
+/** Callbacks for events, replay resets, and connection state from a session stream. */
 export interface StreamHandlers {
   onEvent: (event: StreamEvent) => void;
-  /** Transient streaming state (tokens, logs) must be reset here (reconnect rule). */
+  /** Transient streaming state (tokens, logs) must be reset before a reconnect replay. */
   onReset: () => void;
+  onConnectionStateChange?: (state: SessionStreamConnectionState) => void;
   onError?: (message: string) => void;
+}
+
+function isSessionStreamRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isSessionStreamNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isSessionStreamIdeaScores(value: unknown): value is IdeaScores {
+  return (
+    isSessionStreamRecord(value) &&
+    isSessionStreamNumber(value.novelty) &&
+    isSessionStreamNumber(value.feasibility) &&
+    isSessionStreamNumber(value.clarity) &&
+    isSessionStreamNumber(value.total)
+  );
+}
+
+function isSessionStreamIdea(value: unknown): value is Idea {
+  return (
+    isSessionStreamRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.session_id === "string" &&
+    typeof value.persona_type === "string" &&
+    (value.phase === "divergence" || value.phase === "discussion") &&
+    typeof value.content === "string" &&
+    (value.cluster_id === null || isSessionStreamNumber(value.cluster_id)) &&
+    (value.synthesized === null || typeof value.synthesized === "string") &&
+    (value.scores === null || isSessionStreamIdeaScores(value.scores)) &&
+    (value.decision === "pending" ||
+      value.decision === "adopted" ||
+      value.decision === "held" ||
+      value.decision === "rejected") &&
+    typeof value.note === "string"
+  );
+}
+
+function isSessionStreamMetrics(value: unknown): value is SessionMetrics {
+  return (
+    isSessionStreamRecord(value) &&
+    isSessionStreamNumber(value.total_ideas) &&
+    isSessionStreamNumber(value.unique_ideas) &&
+    isSessionStreamNumber(value.non_duplicate_ratio) &&
+    isSessionStreamNumber(value.semantic_dispersion) &&
+    typeof value.collapse_alert === "boolean"
+  );
+}
+
+/** Parses one frozen-contract SSE data payload, ignoring malformed or unknown events. */
+export function parseSessionStreamEvent(data: string): StreamEvent | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(data);
+  } catch {
+    return null;
+  }
+  if (!isSessionStreamRecord(value) || typeof value.type !== "string") return null;
+
+  switch (value.type) {
+    case "phase":
+      return typeof value.phase === "string" &&
+        (value.label === undefined || typeof value.label === "string")
+        ? (value as StreamEvent)
+        : null;
+    case "agent_start":
+      return typeof value.agent === "string" &&
+        isSessionStreamNumber(value.round) &&
+        typeof value.task === "string"
+        ? (value as StreamEvent)
+        : null;
+    case "token":
+      return typeof value.agent === "string" &&
+        isSessionStreamNumber(value.round) &&
+        typeof value.delta === "string"
+        ? (value as StreamEvent)
+        : null;
+    case "agent_done":
+      return typeof value.agent === "string" && isSessionStreamNumber(value.round)
+        ? (value as StreamEvent)
+        : null;
+    case "idea":
+      return isSessionStreamIdea(value.idea) ? (value as StreamEvent) : null;
+    case "message":
+      return isSessionStreamNumber(value.round) &&
+        typeof value.from === "string" &&
+        typeof value.content === "string"
+        ? (value as StreamEvent)
+        : null;
+    case "metrics":
+      return isSessionStreamMetrics(value.metrics) ? (value as StreamEvent) : null;
+    case "error":
+      return typeof value.message === "string" ? (value as StreamEvent) : null;
+    default:
+      return null;
+  }
 }
 
 /**
@@ -165,23 +365,49 @@ export interface StreamHandlers {
  * - On unexpected disconnects, reconnect exactly once, resetting transient
  *   state first so re-seeded history does not duplicate logs.
  *
- * Returns an unsubscribe function.
+ * Returns an idempotent unsubscribe function that detaches every EventSource handler.
  */
 export function subscribeSession(id: string, handlers: StreamHandlers): () => void {
   let source: EventSource | null = null;
   let finished = false; // server signalled done/error
   let retried = false; // only one automatic reconnect is allowed
   let closedByCaller = false;
+  let connectionState: SessionStreamConnectionState | null = null;
 
-  const connect = () => {
-    source = new EventSource(`${BASE}/sessions/${id}/stream`);
-    source.onmessage = (message) => {
-      let event: StreamEvent;
-      try {
-        event = JSON.parse(message.data) as StreamEvent;
-      } catch {
-        return;
-      }
+  const setConnectionState = (nextState: SessionStreamConnectionState) => {
+    if (connectionState === nextState || closedByCaller) return;
+    connectionState = nextState;
+    handlers.onConnectionStateChange?.(nextState);
+  };
+
+  const closeSource = (connectedSource: EventSource) => {
+    connectedSource.onopen = null;
+    connectedSource.onmessage = null;
+    connectedSource.onerror = null;
+    connectedSource.close();
+    if (source === connectedSource) source = null;
+  };
+
+  const connect = (openingState: "connecting" | "reconnecting") => {
+    if (closedByCaller) return;
+    setConnectionState(openingState);
+
+    let connectedSource: EventSource;
+    try {
+      connectedSource = new EventSource(`${BASE}/sessions/${id}/stream`);
+    } catch {
+      setConnectionState("disconnected");
+      handlers.onError?.("Could not open the session stream.");
+      return;
+    }
+    source = connectedSource;
+    connectedSource.onopen = () => {
+      if (!closedByCaller && source === connectedSource) setConnectionState("connected");
+    };
+    connectedSource.onmessage = (message) => {
+      if (closedByCaller || source !== connectedSource) return;
+      const event = parseSessionStreamEvent(message.data);
+      if (event === null) return;
       if (
         event.type === "error" ||
         (event.type === "phase" && (event.phase === "done" || event.phase === "error"))
@@ -190,29 +416,32 @@ export function subscribeSession(id: string, handlers: StreamHandlers): () => vo
       }
       handlers.onEvent(event);
     };
-    source.onerror = () => {
+    connectedSource.onerror = () => {
       // The browser fires onerror both for network drops and for the server's
       // deliberate close after the terminal event.
-      if (closedByCaller) return;
+      if (closedByCaller || source !== connectedSource) return;
       if (finished) {
-        source?.close();
+        closeSource(connectedSource);
+        setConnectionState("complete");
         return;
       }
       if (!retried) {
         retried = true;
         handlers.onReset();
-        source?.close();
-        connect();
+        closeSource(connectedSource);
+        connect("reconnecting");
         return;
       }
-      source?.close();
+      closeSource(connectedSource);
+      setConnectionState("disconnected");
       handlers.onError?.("Lost the connection to the session stream.");
     };
   };
 
-  connect();
+  connect("connecting");
   return () => {
+    if (closedByCaller) return;
     closedByCaller = true;
-    source?.close();
+    if (source !== null) closeSource(source);
   };
 }

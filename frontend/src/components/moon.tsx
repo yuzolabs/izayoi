@@ -12,6 +12,7 @@ export function MoonIcon({
   waning = false,
   className,
   glow = false,
+  shadeClassName = "fill-secondary",
 }: {
   /** 0 = new moon, 1 = full moon. */
   illumination: number;
@@ -19,6 +20,8 @@ export function MoonIcon({
   waning?: boolean;
   className?: string;
   glow?: boolean;
+  /** Fill of the unlit disc. Defaults to paper tone; use "fill-night" on night panels. */
+  shadeClassName?: string;
 }) {
   const clipId = useId();
   const k = Math.max(0, Math.min(1, illumination));
@@ -36,7 +39,7 @@ export function MoonIcon({
           <circle cx="12" cy="12" r="8.5" />
         </clipPath>
       </defs>
-      <circle cx="12" cy="12" r="8.5" className="fill-secondary" />
+      <circle cx="12" cy="12" r="8.5" className={shadeClassName} />
       <g clipPath={`url(#${clipId})`}>
         <circle cx={litCx} cy="12" r="8.5" fill="currentColor" />
       </g>
