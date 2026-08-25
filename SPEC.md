@@ -1,6 +1,6 @@
 # izayoi — MBTI Persona Brainstorming (Cloud API Edition) — Specification
 
-This document is the self-contained technical specification for **izayoi**, a local-only web
+This document is the self-contained technical specification for **izayoi**, a local-only web and command-line
 tool that runs brainstorming sessions between multiple LLM agents, each impersonating one of
 the 16 MBTI personality types, in order to surface a diversity of ideas that a single model
 cannot produce.
@@ -261,3 +261,17 @@ whitespace, no blue-purple gradients, shadcn/ui-style components.
 | P5 | On completed-session replay `phase=done` may arrive first while the frontend closes EventSource immediately on done, discarding later ideas/messages/metrics | On done/error only set a flag; never close — let the server close |
 | P6 | Without litellm installed even Mock does not run | Import litellm lazily inside the calling functions |
 | P7 | Re-viewing a completed session leaves agent cards stuck on "waiting" | When the phase is done, treat cards as "completed" and show a "no per-token replay" note |
+
+## 9. CLI interface (additional surface; §6 unchanged)
+
+`izayoi run` and `izayoi export` are non-interactive clients of the same session
+lifecycle and md/json export defined in §6. They do not add REST or SSE
+endpoints.
+
+The operator contract — flags, `--theme -` stdin, `--timeout`, export formats,
+exit codes `0` / `1` / `2` / `130` / `143`, and provider/model/key pre-checks as
+usage error `2` before create/lock — lives in README.md and `izayoi --help`.
+
+The one-running-session rule (§5.2) is enforced across the Web server and the CLI
+through a hashed lock file under `<parent-of-IZAYOI_DB_PATH>/.izayoi-run-locks/`.
+Volume mounts and backups must treat that directory together with the SQLite file.
