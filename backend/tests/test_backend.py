@@ -15,7 +15,9 @@ from collections import Counter
 import pytest
 from fastapi.testclient import TestClient
 
-from backend import db, main, personas, providers
+from backend import db, main, personas, providers, session_run_lock
+from backend.session_export import _fence_user_markdown
+from backend.models import SessionCreate
 from backend.personas import REQUIRED_FIELDS
 
 ALL_ENV_KEYS = [
@@ -72,6 +74,16 @@ def test_cloud_providers_follow_env_vars(monkeypatch):
     assert detected["openai"].available is True
     assert detected["gemini"].available is True
     assert detected["anthropic"].available is False
+
+
+def test_required_provider_env_vars_follow_registry():
+    assert providers.required_provider_env_vars("mock") == ()
+    assert providers.required_provider_env_vars("openai") == ("OPENAI_API_KEY",)
+    assert providers.required_provider_env_vars("gemini") == (
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+    )
+    assert providers.required_provider_env_vars("not-a-provider") == ()
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +143,272 @@ E2E_PAYLOAD = {
     "facilitator": {"provider": "mock", "model": "mock"},
     "enable_judge": True,
 }
+
+
+def build_session_create_api_payload(**updates: object) -> dict:
+    """Copy the valid REST fixture and replace fields for contract tests."""
+
+    payload = dict(E2E_PAYLOAD)
+    payload.update(updates)
+    return payload
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    [
+        ("theme", " \u00a0\u2003\u3000 "),
+        ("theme", f"\u3000{'t' * 2001}\u00a0"),
+        ("constraints", f"\u2003{'c' * 2001}\u3000"),
+    ],
+    ids=("theme-unicode-blank", "theme-trimmed-2001", "constraints-trimmed-2001"),
+)
+def test_session_create_api_validation_has_field_location_without_side_effects(
+    tmp_path,
+    monkeypatch,
+    field_name,
+    invalid_value,
+):
+    database_path = tmp_path / "invalid-session-create.db"
+    monkeypatch.setenv("IZAYOI_DB_PATH", str(database_path))
+    db.init_db()
+    lock_directory = session_run_lock.session_run_lock_path(str(database_path)).parent
+    assert not lock_directory.exists()
+
+    side_effect_calls = []
+    original_load_personas = personas.load_personas
+    original_require_available = main._require_available
+    original_create_session = db.create_session
+    original_provider_complete = providers.complete
+
+    def observe_persona_lookup():
+        side_effect_calls.append("persona lookup")
+        return original_load_personas()
+
+    def observe_provider_availability(provider_id):
+        side_effect_calls.append("provider availability")
+        return original_require_available(provider_id)
+
+    def observe_database_create(payload):
+        side_effect_calls.append("database create")
+        return original_create_session(payload)
+
+    async def observe_provider_call(*args, **kwargs):
+        side_effect_calls.append("provider call")
+        return await original_provider_complete(*args, **kwargs)
+
+    monkeypatch.setattr(personas, "load_personas", observe_persona_lookup)
+    monkeypatch.setattr(main, "_require_available", observe_provider_availability)
+    monkeypatch.setattr(db, "create_session", observe_database_create)
+    monkeypatch.setattr(providers, "complete", observe_provider_call)
+
+    client = TestClient(main.create_app())
+    response = client.post(
+        "/api/sessions",
+        json=build_session_create_api_payload(**{field_name: invalid_value}),
+    )
+    client.close()
+
+    assert response.status_code == 422
+    assert [error["loc"] for error in response.json()["detail"]] == [
+        ["body", field_name]
+    ]
+    assert side_effect_calls == []
+    assert db.list_sessions() == []
+    assert not lock_directory.exists()
+
+
+@pytest.mark.parametrize(
+    ("field_name", "raw_value", "stored_value"),
+    [
+        ("theme", f"\u3000{'t' * 2000}\u00a0", "t" * 2000),
+        ("constraints", f"\u2003{'c' * 2000}\u3000", "c" * 2000),
+    ],
+    ids=("theme-trimmed-2000", "constraints-trimmed-2000"),
+)
+def test_session_create_api_stores_and_exports_trimmed_2000_character_fields(
+    temp_db,
+    field_name,
+    raw_value,
+    stored_value,
+):
+    client = TestClient(main.create_app())
+    created = client.post(
+        "/api/sessions",
+        json=build_session_create_api_payload(**{field_name: raw_value}),
+    )
+
+    assert created.status_code == 201, created.text
+    session = created.json()
+    assert session[field_name] == stored_value
+
+    exported = client.get(
+        f"/api/sessions/{session['id']}/export",
+        params={"format": "json"},
+    )
+    client.close()
+
+    assert exported.status_code == 200
+    assert exported.json()["session"][field_name] == stored_value
+
+
+@pytest.mark.parametrize("constraints", [None, "", " \u00a0\u2003\u3000 "])
+def test_session_create_api_persists_null_or_blank_constraints_as_empty_text(
+    temp_db,
+    constraints,
+):
+    client = TestClient(main.create_app())
+    created = client.post(
+        "/api/sessions",
+        json=build_session_create_api_payload(constraints=constraints),
+    )
+    client.close()
+
+    assert created.status_code == 201, created.text
+    session = created.json()
+    assert session["constraints"] == ""
+    assert db.get_session_config(session["id"])["constraints"] is None
+
+
+def seed_idea_for_decision_note_contract(note: str = "Keep the original note.") -> tuple[str, str]:
+    """Insert one session idea used by decision-note PATCH contract tests."""
+
+    session = db.create_session(
+        SessionCreate.model_validate(build_session_create_api_payload())
+    )
+    idea = db.insert_idea(session.id, "INTJ", "divergence", "Seed idea for decision note")
+    updated = db.update_idea_decision(idea.id, "held", note)
+    assert updated is not None
+    return session.id, updated.id
+
+
+@pytest.mark.parametrize(
+    "invalid_note",
+    ["n" * 2001, f"\u3000{'n' * 2001}\u00a0"],
+    ids=("note-2001", "note-trimmed-2001"),
+)
+def test_decision_update_api_validation_has_field_location_without_side_effects(
+    tmp_path,
+    monkeypatch,
+    invalid_note,
+):
+    database_path = tmp_path / "invalid-decision-update.db"
+    monkeypatch.setenv("IZAYOI_DB_PATH", str(database_path))
+    db.init_db()
+    session_id, idea_id = seed_idea_for_decision_note_contract()
+    original_idea = db.get_idea(idea_id)
+    original_session = db.get_session(session_id)
+    assert original_idea is not None
+    assert original_session is not None
+    lock_directory = session_run_lock.session_run_lock_path(str(database_path)).parent
+    assert not lock_directory.exists()
+
+    side_effect_calls = []
+    original_update_idea_decision = db.update_idea_decision
+    original_provider_complete = providers.complete
+
+    def observe_decision_update(*args, **kwargs):
+        side_effect_calls.append("decision update")
+        return original_update_idea_decision(*args, **kwargs)
+
+    async def observe_provider_call(*args, **kwargs):
+        side_effect_calls.append("provider call")
+        return await original_provider_complete(*args, **kwargs)
+
+    monkeypatch.setattr(db, "update_idea_decision", observe_decision_update)
+    monkeypatch.setattr(main.db, "update_idea_decision", observe_decision_update)
+    monkeypatch.setattr(providers, "complete", observe_provider_call)
+
+    client = TestClient(main.create_app())
+    response = client.patch(
+        f"/api/ideas/{idea_id}/decision",
+        json={"decision": "adopted", "note": invalid_note},
+    )
+    client.close()
+
+    assert response.status_code == 422
+    assert [error["loc"] for error in response.json()["detail"]] == [["body", "note"]]
+    assert response.json()["detail"][0]["type"] == "string_too_long"
+    assert side_effect_calls == []
+    assert db.get_idea(idea_id) == original_idea
+    assert db.get_session(session_id) == original_session
+    assert [session.id for session in db.list_sessions()] == [session_id]
+    assert not lock_directory.exists()
+
+
+@pytest.mark.parametrize(
+    ("raw_note", "stored_note"),
+    [
+        (f"\u3000{'n' * 2000}\u00a0", "n" * 2000),
+        (" \u00a0\u2003\u3000 ", ""),
+        ("\u00a0\u3000  Keep this note  \u2003", "Keep this note"),
+    ],
+    ids=("note-trimmed-2000", "note-unicode-blank-clear", "note-unicode-strip"),
+)
+def test_decision_update_api_stores_and_exports_normalized_note(
+    temp_db,
+    raw_note,
+    stored_note,
+):
+    session_id, idea_id = seed_idea_for_decision_note_contract()
+    client = TestClient(main.create_app())
+    patched = client.patch(
+        f"/api/ideas/{idea_id}/decision",
+        json={"decision": "adopted", "note": raw_note},
+    )
+
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["decision"] == "adopted"
+    assert patched.json()["note"] == stored_note
+    persisted = db.get_idea(idea_id)
+    assert persisted is not None
+    assert persisted.note == stored_note
+
+    exported_json = client.get(
+        f"/api/sessions/{session_id}/export",
+        params={"format": "json"},
+    )
+    exported_markdown = client.get(
+        f"/api/sessions/{session_id}/export",
+        params={"format": "md"},
+    )
+    client.close()
+
+    assert exported_json.status_code == 200
+    assert exported_markdown.status_code == 200
+    exported_idea = next(
+        idea for idea in exported_json.json()["ideas"] if idea["id"] == idea_id
+    )
+    assert exported_idea["note"] == stored_note
+    if stored_note:
+        assert "- Note:" in exported_markdown.text
+        assert _fence_user_markdown(stored_note) in exported_markdown.text
+        assert f"- Note: {stored_note}" not in exported_markdown.text
+    else:
+        assert "- Note:" not in exported_markdown.text
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"decision": "rejected"},
+        {"decision": "rejected", "note": None},
+    ],
+    ids=("note-omitted", "note-null"),
+)
+def test_decision_update_api_omitted_or_null_note_leaves_existing_note(temp_db, payload):
+    session_id, idea_id = seed_idea_for_decision_note_contract()
+    client = TestClient(main.create_app())
+    patched = client.patch(f"/api/ideas/{idea_id}/decision", json=payload)
+    client.close()
+
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["decision"] == "rejected"
+    assert patched.json()["note"] == "Keep the original note."
+    persisted = db.get_idea(idea_id)
+    assert persisted is not None
+    assert persisted.decision == "rejected"
+    assert persisted.note == "Keep the original note."
+    assert db.get_session(session_id) is not None
 
 
 def _wait_until_done(client: TestClient, session_id: str, timeout: float = 90.0) -> dict:

@@ -96,6 +96,19 @@ def is_provider_available(provider_id: str) -> bool:
     return any(p.id == provider_id and p.available for p in detect_providers())
 
 
+def required_provider_env_vars(provider_id: str) -> tuple[str, ...]:
+    """Return the API key environment variable names a provider requires.
+
+    Mock requires none. Unknown provider IDs return an empty tuple. Whether
+    those variables are set is decided only by ``detect_providers()``.
+    """
+
+    spec = next((item for item in _PROVIDERS if item["id"] == provider_id), None)
+    if spec is None:
+        return ()
+    return tuple(spec["env_vars"])
+
+
 def _litellm_model_string(provider_id: str, model: str) -> str:
     spec = next((s for s in _PROVIDERS if s["id"] == provider_id), None)
     prefix = spec["prefix"] if spec else ""
