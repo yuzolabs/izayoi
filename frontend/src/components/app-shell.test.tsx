@@ -673,12 +673,11 @@ describe("AppShell lazy route fallback accessibility", () => {
       assert.equal(focusSpy.getFocusCallCount(), 2);
       const recordedRouteRenderErrors = caughtReactErrors.filter(
         (errorArguments) =>
-          typeof errorArguments[0] === "string" &&
-          errorArguments[0].startsWith(
-            "[izayoi] route render error (Session history):"
-          )
+          errorArguments[0] === "[izayoi] route render error:" &&
+          errorArguments[1] === "Session history"
       );
       assert.equal(recordedRouteRenderErrors.length, 1);
+      assert.ok(recordedRouteRenderErrors[0][2] instanceof Error);
       assert.ok(
         caughtReactErrors.length < 10,
         "A rejected route chunk must not flood console.error"
@@ -765,19 +764,20 @@ describe("AppRouteErrorBoundary route render error recording", () => {
       );
 
       const recordedRouteRenderErrors = consoleErrorSpy.getPrefixedCalls(
-        "[izayoi] route render error (Live session):"
+        "[izayoi] route render error:"
       );
       assert.equal(recordedRouteRenderErrors.length, 1);
-      assert.ok(recordedRouteRenderErrors[0][1] instanceof Error);
+      assert.equal(recordedRouteRenderErrors[0][1], "Live session");
+      assert.ok(recordedRouteRenderErrors[0][2] instanceof Error);
       assert.equal(
-        (recordedRouteRenderErrors[0][1] as Error).message,
+        (recordedRouteRenderErrors[0][2] as Error).message,
         "Synthetic route render failure"
       );
 
       await flushRouteAnimationFrames(4);
       assert.equal(
         consoleErrorSpy.getPrefixedCalls(
-          "[izayoi] route render error (Live session):"
+          "[izayoi] route render error:"
         ).length,
         1
       );

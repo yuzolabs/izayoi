@@ -87,7 +87,8 @@ class AppRouteErrorBoundary extends Component<
   /** Records the caught route render error once; does not rethrow to window.onerror. */
   componentDidCatch(error: unknown) {
     console.error(
-      `[izayoi] route render error (${this.props.routeName}):`,
+      "[izayoi] route render error:",
+      this.props.routeName,
       error
     );
   }
